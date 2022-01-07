@@ -1,0 +1,12 @@
+[package]
+name = "serde_array_query"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "1.0.0"
+serde_urlencoded = { version = "0.7.0", optional = true }
+
+[features]
+default = ["serde/derive", "from_str"]
+from_str = ["serde_urlencoded"]
