@@ -7,6 +7,10 @@ edition = "2021"
 serde = "1.0.0"
 serde_urlencoded = { version = "0.7.0", optional = true }
 
+[dev-dependencies]
+warp = "0.3"
+tokio = { version = "1.0", features = ["full"]}
+
 [features]
 default = ["serde/derive", "from_str"]
 from_str = ["serde_urlencoded"]
