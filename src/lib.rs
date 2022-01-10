@@ -188,10 +188,20 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         visitor.visit_string(value)
     }
 
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        if !self.in_map {
+            return Err(Error::ForbiddenTopLevelOption);
+        }
+        visitor.visit_some(self)
+    }
+
     // TODO: could support integer types by using a macro to generate impls that use `FromStr`
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
-        bytes byte_buf option unit unit_struct newtype_struct tuple
+        bytes byte_buf unit unit_struct newtype_struct tuple
         tuple_struct enum ignored_any
     }
 }
@@ -292,5 +302,91 @@ mod test {
 
         let flat = from_str::<FlatExample>(q).unwrap();
         assert_eq!(flat.x.values, string_vec(&[1, 2, 3, 4, 5, 6, 7, 8, 9]));
+    }
+
+    #[test]
+    fn option_field_deserialize_with() {
+        #[derive(Debug, Deserialize)]
+        pub struct Opt {
+            #[serde(default, deserialize_with = "option_query_vec")]
+            x: Option<Vec<u64>>,
+        }
+
+        fn option_query_vec<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+            T: std::str::FromStr,
+        {
+            let vec: Vec<String> = Deserialize::deserialize(deserializer)?;
+            if !vec.is_empty() {
+                Ok(Some(
+                    vec.into_iter()
+                        .map(|s| T::from_str(&s).map_err(|_| ()).unwrap())
+                        .collect(),
+                ))
+            } else {
+                Ok(None)
+            }
+        }
+
+        let q = "";
+        let v = from_str::<Opt>(q).unwrap();
+        assert_eq!(v.x, None);
+
+        let q = "x=1&x=2";
+        let v = from_str::<Opt>(q).unwrap();
+        assert_eq!(v.x, Some(vec![1, 2]));
+    }
+
+    #[test]
+    fn option_string() {
+        #[derive(Debug, PartialEq, Deserialize)]
+        pub struct Example {
+            x: Option<String>,
+            y: String,
+            z: Option<String>,
+        }
+
+        let data = vec![
+            (
+                "y=5",
+                Example {
+                    x: None,
+                    y: "5".into(),
+                    z: None,
+                },
+            ),
+            (
+                "y=5&x=2",
+                Example {
+                    x: Some("2".into()),
+                    y: "5".into(),
+                    z: None,
+                },
+            ),
+            (
+                "y=1&z=2",
+                Example {
+                    x: None,
+                    y: "1".into(),
+                    z: Some("2".into()),
+                },
+            ),
+            (
+                "x=hello&y=world&z=wow",
+                Example {
+                    x: Some("hello".into()),
+                    y: "world".into(),
+                    z: Some("wow".into()),
+                },
+            ),
+        ];
+
+        for (query, expected) in data {
+            assert_eq!(from_str::<Example>(query).unwrap(), expected);
+        }
+
+        // Missing `y`.
+        from_str::<Example>("").unwrap_err();
     }
 }
