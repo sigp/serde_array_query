@@ -99,7 +99,7 @@ async fn main() {
             .map(example_1_filter),
     );
 
-    // curl "http://localhost:3030/example1?key1=1,2,3key1=42"
+    // curl "http://localhost:3030/example2?key1=1,2,3&key1=42"
     // demonstrates deserializing duplicate key-value pairs into a Vec<u64>
     let example2 = warp::get().and(
         warp::path("example2")
