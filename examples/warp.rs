@@ -1,7 +1,4 @@
-#![allow(dead_code)]
-
 use serde::{de, Deserialize};
-use serde_array_query::from_key_values;
 use std::str::FromStr;
 use warp::{http::Response, Filter};
 
@@ -41,14 +38,14 @@ impl<T: FromStr> TryFrom<String> for QueryVec<T> {
 
     fn try_from(string: String) -> Result<Self, Self::Error> {
         if string.is_empty() {
-            return Ok(Self{ values: vec![]});
+            return Ok(Self { values: vec![] });
         }
 
         Ok(Self {
             values: string
-            .split(',')
-            .map(|s| s.parse().map_err(|_| "unable to parse".to_string()))
-            .collect::<Result<Vec<T>, String>>()?
+                .split(',')
+                .map(|s| s.parse().map_err(|_| "unable to parse".to_string()))
+                .collect::<Result<Vec<T>, String>>()?,
         })
     }
 }
@@ -56,46 +53,49 @@ impl<T: FromStr> TryFrom<String> for QueryVec<T> {
 #[derive(Debug, Deserialize)]
 pub struct Example1 {
     #[serde(deserialize_with = "query_vec")]
-    key1: Vec<String>,
+    pub key1: Vec<String>,
 }
 
-fn example_1_filter(query: Vec<(String, String)>) -> Response<String> {
-    let string = from_key_values::<Example1>(query).unwrap();
-    Response::builder().body(format!("{:?}", string)).unwrap()
+fn example_1_filter(example1: Example1) -> Response<String> {
+    Response::builder().body(format!("{:?}", example1)).unwrap()
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Example2 {
     #[serde(deserialize_with = "query_vec")]
-    key1: Vec<u64>,
+    pub key1: Vec<u64>,
 }
 
-fn example_2_filter(query: Vec<(String, String)>) -> Response<String> {
-    let string = from_key_values::<Example2>(query).unwrap();
-    Response::builder().body(format!("{:?}", string)).unwrap()
+fn example_2_filter(example2: Example2) -> Response<String> {
+    Response::builder().body(format!("{:?}", example2)).unwrap()
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Example3 {
     #[serde(deserialize_with = "query_vec")]
-    key1: Vec<String>,
+    pub key1: Vec<String>,
     #[serde(deserialize_with = "query_vec")]
-    key2: Vec<u64>,
+    pub key2: Vec<u64>,
 }
 
-fn example_3_filter(query: Vec<(String, String)>) -> Response<String> {
-    let string = from_key_values::<Example3>(query).unwrap();
-    Response::builder().body(format!("{:?}", string)).unwrap()
+fn example_3_filter(example3: Example3) -> Response<String> {
+    Response::builder().body(format!("{:?}", example3)).unwrap()
+}
+
+fn query_filter<'de, T: Deserialize<'de>>(
+) -> impl warp::Filter<Extract = (T,), Error = warp::Rejection> + Copy {
+    warp::filters::query::raw().and_then(|query_str: String| async move {
+        serde_array_query::from_str(&query_str).map_err(|_| warp::reject::reject())
+    })
 }
 
 #[tokio::main]
 async fn main() {
-
     // curl "http://localhost:3030/example1?key1=hello,world&key1=foo,bar"
     // demonstrates deserializing duplicate key-value pairs into a Vec<String>
     let example1 = warp::get().and(
         warp::path("example1")
-            .and(warp::query())
+            .and(query_filter())
             .map(example_1_filter),
     );
 
@@ -103,7 +103,7 @@ async fn main() {
     // demonstrates deserializing duplicate key-value pairs into a Vec<u64>
     let example2 = warp::get().and(
         warp::path("example2")
-            .and(warp::query())
+            .and(query_filter())
             .map(example_2_filter),
     );
 
@@ -111,7 +111,7 @@ async fn main() {
     // demonstrates deserializing multiple duplicate key-value pairs into their corresponding Vecs
     let example3 = warp::get().and(
         warp::path("example3")
-            .and(warp::query())
+            .and(query_filter())
             .map(example_3_filter),
     );
 
