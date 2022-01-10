@@ -1,4 +1,4 @@
-use serde::{de, Deserialize};
+use serde::Deserialize;
 use std::str::FromStr;
 use warp::{http::Response, Filter};
 
@@ -14,7 +14,7 @@ where
     T: FromStr,
 {
     let vec: Vec<QueryVec<T>> = Deserialize::deserialize(deserializer)?;
-    QueryVec::try_into(QueryVec::from(vec)).map_err(de::Error::custom)
+    Ok(Vec::from(QueryVec::from(vec)))
 }
 
 impl<T: FromStr> From<Vec<QueryVec<T>>> for QueryVec<T> {
@@ -22,14 +22,6 @@ impl<T: FromStr> From<Vec<QueryVec<T>>> for QueryVec<T> {
         Self {
             values: vecs.into_iter().flat_map(|qv| qv.values).collect(),
         }
-    }
-}
-
-impl<T: FromStr> TryInto<Vec<T>> for QueryVec<T> {
-    type Error = String;
-
-    fn try_into(self) -> Result<Vec<T>, Self::Error> {
-        Ok(self.values)
     }
 }
 
@@ -47,6 +39,12 @@ impl<T: FromStr> TryFrom<String> for QueryVec<T> {
                 .map(|s| s.parse().map_err(|_| "unable to parse".to_string()))
                 .collect::<Result<Vec<T>, String>>()?,
         })
+    }
+}
+
+impl<T: FromStr> From<QueryVec<T>> for Vec<T> {
+    fn from(vec: QueryVec<T>) -> Vec<T> {
+        vec.values
     }
 }
 
