@@ -198,11 +198,20 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         visitor.visit_some(self)
     }
 
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        // It is an error to ignore extra query parameters.
+        let current_key = self.current_key()?;
+        Err(Error::InvalidExtraKey(current_key))
+    }
+
     // TODO: could support integer types by using a macro to generate impls that use `FromStr`
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
         bytes byte_buf unit unit_struct newtype_struct tuple
-        tuple_struct enum ignored_any
+        tuple_struct enum
     }
 }
 
@@ -225,7 +234,12 @@ mod test {
         let q = "id=1&id=2&id=3";
         let ids: IdVec = from_str(q).unwrap();
 
-        assert_eq!(ids.id, string_vec(&[1, 2, 3]),);
+        assert_eq!(ids.id, string_vec(&[1, 2, 3]));
+
+        // Supplying extra keys should result in a failure.
+        let q = "id=1&extra";
+        let err = from_str::<IdVec>(q).unwrap_err();
+        assert!(matches!(err, Error::InvalidExtraKey(key) if key == "extra"));
     }
 
     #[test]

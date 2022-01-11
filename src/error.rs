@@ -14,6 +14,7 @@ pub enum Error {
     MissingValues,
     MissingValue,
     ForbiddenTopLevelOption,
+    InvalidExtraKey(String),
     RemoveKeyFailed(String),
     Message(String),
     #[cfg(feature = "from_str")]
