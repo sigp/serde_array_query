@@ -2,6 +2,8 @@
 name = "serde_array_query"
 version = "0.1.0"
 edition = "2021"
+description = "Serde deserialization format for HTTP query string arrays"
+license = "Apache-2.0"
 
 [dependencies]
 serde = "1.0.0"
