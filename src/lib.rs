@@ -1,5 +1,5 @@
 use serde::{
-    de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor},
+    de::{self, DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor},
     forward_to_deserialize_any, Deserialize,
 };
 use std::collections::{BTreeMap, VecDeque};
@@ -7,6 +7,33 @@ use std::collections::{BTreeMap, VecDeque};
 mod error;
 
 pub use error::Error;
+
+// Copied from serde_urlencoded and modified
+macro_rules! forward_parsed_value {
+    ($($ty:ident => $method:ident,)*) => {
+        $(
+            fn $method<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+                where V: de::Visitor<'de>
+            {
+                let values = self.current_values()?;
+                let value = values.pop_front().ok_or(Error::MissingValue)?;
+
+                if values.is_empty() {
+                    let key = self.current_key()?;
+                    self.key_values
+                        .remove(&key)
+                        .ok_or_else(|| Error::RemoveKeyFailed(key))?;
+                    self.in_sequence = false;
+                }
+
+                match value.as_str().parse::<$ty>() {
+                    Ok(val) => val.into_deserializer().$method(visitor),
+                    Err(e) => Err(de::Error::custom(e))
+                }
+            }
+        )*
+    }
+}
 
 #[derive(Debug)]
 pub struct Deserializer {
@@ -198,11 +225,24 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         visitor.visit_some(self)
     }
 
-    // TODO: could support integer types by using a macro to generate impls that use `FromStr`
     forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
+        char str
         bytes byte_buf unit unit_struct newtype_struct tuple
         tuple_struct enum ignored_any
+    }
+
+    forward_parsed_value! {
+        bool => deserialize_bool,
+        u8 => deserialize_u8,
+        u16 => deserialize_u16,
+        u32 => deserialize_u32,
+        u64 => deserialize_u64,
+        i8 => deserialize_i8,
+        i16 => deserialize_i16,
+        i32 => deserialize_i32,
+        i64 => deserialize_i64,
+        f32 => deserialize_f32,
+        f64 => deserialize_f64,
     }
 }
 
@@ -225,7 +265,7 @@ mod test {
         let q = "id=1&id=2&id=3";
         let ids: IdVec = from_str(q).unwrap();
 
-        assert_eq!(ids.id, string_vec(&[1, 2, 3]),);
+        assert_eq!(ids.id, string_vec(&[1, 2, 3]));
     }
 
     #[test]
@@ -388,5 +428,20 @@ mod test {
 
         // Missing `y`.
         from_str::<Example>("").unwrap_err();
+    }
+
+    #[test]
+    fn array_and_number() {
+        #[derive(Debug, Deserialize)]
+        pub struct Query {
+            id: Vec<String>,
+            foo: u32,
+        }
+
+        let q = "id=1&id=2&foo=3";
+        let ids: Query = from_str(q).unwrap();
+
+        assert_eq!(ids.id, string_vec(&[1, 2]));
+        assert_eq!(ids.foo, 3);
     }
 }
