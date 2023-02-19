@@ -304,20 +304,6 @@ impl<'de, 'a> de::VariantAccess<'de> for UnitOnlyVariantAccess {
     {
         Err(Error::ExpectedUnitVariant)
     }
-
-    forward_parsed_value! {
-        bool => deserialize_bool,
-        u8 => deserialize_u8,
-        u16 => deserialize_u16,
-        u32 => deserialize_u32,
-        u64 => deserialize_u64,
-        i8 => deserialize_i8,
-        i16 => deserialize_i16,
-        i32 => deserialize_i32,
-        i64 => deserialize_i64,
-        f32 => deserialize_f32,
-        f64 => deserialize_f64,
-    }
 }
 
 #[cfg(test)]
