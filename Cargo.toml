@@ -1,6 +1,6 @@
 [package]
 name = "serde_array_query"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Serde deserialization format for HTTP query string arrays"
 license = "Apache-2.0"
