@@ -15,18 +15,7 @@ macro_rules! forward_parsed_value {
             fn $method<V>(self, visitor: V) -> Result<V::Value, Self::Error>
                 where V: de::Visitor<'de>
             {
-                let values = self.current_values()?;
-                let value = values.pop_front().ok_or(Error::MissingValue)?;
-
-                if values.is_empty() {
-                    let key = self.current_key()?;
-                    self.key_values
-                        .remove(&key)
-                        .ok_or_else(|| Error::RemoveKeyFailed(key))?;
-                    self.in_sequence = false;
-                }
-
-                match value.as_str().parse::<$ty>() {
+                match self.next_unit()?.as_str().parse::<$ty>() {
                     Ok(val) => val.into_deserializer().$method(visitor),
                     Err(e) => Err(de::Error::custom(e))
                 }
@@ -72,6 +61,21 @@ impl Deserializer {
             .values_mut()
             .next()
             .ok_or(Error::MissingValues)
+    }
+
+    fn next_unit(&mut self) -> Result<String, Error> {
+        let values = self.current_values()?;
+        let value = values.pop_front().ok_or(Error::MissingValue)?;
+
+        if values.is_empty() {
+            let key = self.current_key()?;
+            self.key_values
+                .remove(&key)
+                .ok_or_else(|| Error::RemoveKeyFailed(key))?;
+            self.in_sequence = false;
+        }
+
+        Ok(value)
     }
 }
 
@@ -202,16 +206,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     where
         V: Visitor<'de>,
     {
-        let values = self.current_values()?;
-        let value = values.pop_front().ok_or(Error::MissingValue)?;
-
-        if values.is_empty() {
-            let key = self.current_key()?;
-            self.key_values
-                .remove(&key)
-                .ok_or_else(|| Error::RemoveKeyFailed(key))?;
-            self.in_sequence = false;
-        }
+        let value = self.next_unit()?;
         visitor.visit_string(value)
     }
 
@@ -225,10 +220,23 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
         visitor.visit_some(self)
     }
 
+    fn deserialize_enum<V>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        let value = self.next_unit()?;
+        visitor.visit_enum(EnumAccess(value))
+    }
+
     forward_to_deserialize_any! {
         char str
         bytes byte_buf unit unit_struct newtype_struct tuple
-        tuple_struct enum ignored_any
+        tuple_struct ignored_any
     }
 
     forward_parsed_value! {
@@ -246,8 +254,62 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer {
     }
 }
 
+struct EnumAccess(String);
+
+impl<'de, 'a> de::EnumAccess<'de> for EnumAccess {
+    type Error = Error;
+    type Variant = UnitOnlyVariantAccess;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: de::DeserializeSeed<'de>,
+    {
+        let variant = seed.deserialize::<de::value::StringDeserializer<Self::Error>>(
+            self.0.into_deserializer(),
+        )?;
+        Ok((variant, UnitOnlyVariantAccess))
+    }
+}
+
+struct UnitOnlyVariantAccess;
+
+impl<'de, 'a> de::VariantAccess<'de> for UnitOnlyVariantAccess {
+    type Error = Error;
+
+    fn unit_variant(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn newtype_variant_seed<T>(self, _seed: T) -> Result<T::Value, Self::Error>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        Err(Error::ExpectedUnitVariant)
+    }
+
+    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        Err(Error::ExpectedUnitVariant)
+    }
+
+    fn struct_variant<V>(
+        self,
+        _fields: &'static [&'static str],
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        Err(Error::ExpectedUnitVariant)
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use std::cmp::{Eq, Ord, PartialEq, PartialOrd};
+
     use super::*;
     use serde::Deserialize;
 
@@ -443,5 +505,26 @@ mod test {
 
         assert_eq!(ids.id, string_vec(&[1, 2]));
         assert_eq!(ids.foo, 3);
+    }
+    #[test]
+    fn simple_enum() {
+        #[derive(Debug, Deserialize)]
+        pub struct Query {
+            id: Vec<MyEnum>,
+            foo: MyEnum,
+        }
+
+        #[derive(Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum MyEnum {
+            A,
+            B,
+            C,
+        }
+
+        let q = "id=a&id=b&id=c&id=b&foo=c";
+        let ids: Query = from_str(q).unwrap();
+        assert_eq!(ids.id, vec![MyEnum::A, MyEnum::B, MyEnum::C, MyEnum::B]);
+        assert_eq!(ids.foo, MyEnum::C);
     }
 }
